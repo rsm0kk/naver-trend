@@ -217,22 +217,27 @@ function render(){
   <div class="ctrl"><div class="seg" role="group" aria-label="단위">${["date","week","month"].map(u=>`<button type="button" data-unit="${u}" aria-pressed="${u===unit}">${UNIT[u]}</button>`).join("")}</div>
   <div class="seg" role="group" aria-label="기간">${PERIODS[unit].map(([l,v])=>`<button type="button" data-per="${v}" aria-pressed="${v===per}">${l}</button>`).join("")}</div>
   <div class="seg" role="group" aria-label="대상">${Object.entries(th.trend).map(([id,t])=>`<button type="button" data-flt="${id}" aria-pressed="${id===flt}">${esc(t.label)}</button>`).join("")}</div>
+  <div class="seg" role="group" aria-label="보기">${[["idx","지수"],["share","점유율(%)"]].map(([v,l])=>`<button type="button" data-view="${v}" aria-pressed="${(st.view||"idx")===v}">${l}</button>`).join("")}</div>
   ${CAN_DL?'<button class="btn" type="button" id="csv">CSV 내보내기</button>':""}</div>`;
   if(!T){h+=`<div class="note">이 조합의 데이터를 받지 못했습니다(수집 실패). 아래 실패 목록을 확인하세요.</div></section>`}
   else{
     const start=per?Math.max(0,T.periods.length-per):0;
-    const x=T.periods.slice(start);const ser=T.series.map((s,j)=>({name:s.name,values:s.values.slice(start),color:css(COLORS[j%5]),off:!!st.off[th.id+"|"+s.name]}));
+    const isShare=(st.view||"idx")==="share"&&th.keywords.length>1;
+    const shv=isShare?(()=>{const m=T.series.length,n=T.periods.length,out=T.series.map(()=>new Array(n).fill(null));for(let t=0;t<n;t++){let sm=0,ok=0;for(let j=0;j<m;j++){const v=T.series[j].values[t];if(v!=null){sm+=v;ok++}}if(ok===m&&sm>0)for(let j=0;j<m;j++)out[j][t]=T.series[j].values[t]/sm*100}return out})():null;
+    const x=T.periods.slice(start);const ser=T.series.map((s,j)=>({name:s.name,values:(isShare?shv[j]:s.values).slice(start),color:css(COLORS[j%5]),off:!!st.off[th.id+"|"+s.name]}));
     const pf=unit==="month"?x.findIndex(p=>p>=DATA.current_month):-1;
     h+=`<div class="legend">${ser.map(s=>`<button type="button" data-leg="${esc(s.name)}" aria-pressed="${!s.off}"><span class="sw" style="background:${s.color}"></span>${esc(s.name)}</button>`).join("")}</div>
     <div class="scroll" id="lc"></div>
-    <div class="caption">상대지수: 이 그룹 안의 최댓값을 100으로 놓은 값(${esc(T.start)}~${esc(T.end)}). 같은 그룹 키워드끼리만 수준 비교 가능 · 다른 탭과 비교 불가 · 검색 건수·매출 아님${pf>=0?" · 노란 구간=이번 달(미완료)":""}</div>`;
-    st._chart={x,ser,unit,pf:pf>=0?pf:null,title:th.name};
+    <div class="caption">${isShare?"점유율: 각 시점의 테마 키워드 검색 합을 100%로 놓은 비중(전체 키워드 값이 있는 시점만)":"상대지수: 이 그룹 안의 최댓값을 100으로 놓은 값"}(${esc(T.start)}~${esc(T.end)}). 같은 그룹 키워드끼리만 수준 비교 가능 · 다른 탭과 비교 불가 · 검색 건수·매출 아님${pf>=0?" · 노란 구간=이번 달(미완료)":""}</div>`;
+    st._chart={x,ser,unit,pf:pf>=0?pf:null,title:th.name,src:isShare?"단위: 테마 안 검색 점유율(%) · 네이버 데이터랩":null};
   }
   h+=`</section>`;
   const K=kpis(th,flt);
+  const SSw=th.keywords.length>1?shareSeries(th,flt,"week"):null;
+  K.forEach((r,j)=>{if(!SSw)return;const a=shareChange(SSw[j],"week","week"),b=shareChange(SSw[j],"week","yoy");r.sh=a?a.now:null;r.shd=a?a.d:null;r.shy=b?b.d:null});
   h+=`<section class="card"><h3>요약 지표 <span class="caption">(${esc(th.trend[flt].label)} · 상대지수)</span></h3><div class="scroll"><table id="kt"><thead><tr>
-  <th data-k="name">키워드</th><th data-k="d7">최근 7일 평균</th><th data-k="w">직전 7일 대비</th><th data-k="mLast">최근 완료월</th><th data-k="mom">전월 대비</th><th data-k="yoy">전년 동월 대비</th><th data-k="hi">1년 고점 대비</th></tr></thead><tbody>
-  ${K.map((r,j)=>`<tr><td>${esc(r.name)}${th.stocks&&th.stocks[j]?` <span class="caption">${esc(th.stocks[j])}</span>`:""}</td><td class="num">${fmt(r.d7,2)}</td><td>${pct(r.w)}</td><td class="num">${fmt(r.mLast,2)} <span class="caption">${r.mLabel||""}</span></td><td>${pct(r.mom)}</td><td>${pct(r.yoy)}</td><td>${pct(r.hi)}</td></tr>`).join("")}
+  <th data-k="name">키워드</th><th data-k="d7">최근 7일 평균</th><th data-k="w">직전 7일 대비</th><th data-k="mLast">최근 완료월</th><th data-k="mom">전월 대비</th><th data-k="yoy">전년 동월 대비</th><th data-k="hi">1년 고점 대비</th><th data-k="sh">점유율(최근 4주)</th><th data-k="shd">직전 4주 대비</th><th data-k="shy">작년 같은 4주 대비</th></tr></thead><tbody>
+  ${K.map((r,j)=>`<tr><td>${esc(r.name)}${th.stocks&&th.stocks[j]?` <span class="caption">${esc(th.stocks[j])}</span>`:""}</td><td class="num">${fmt(r.d7,2)}</td><td>${pct(r.w)}</td><td class="num">${fmt(r.mLast,2)} <span class="caption">${r.mLabel||""}</span></td><td>${pct(r.mom)}</td><td>${pct(r.yoy)}</td><td>${pct(r.hi)}</td><td class="num">${r.sh==null?"–":(r.sh*100).toFixed(1)+"%"}</td><td>${ppTxt(r.shd)}</td><td>${ppTxt(r.shy)}</td></tr>`).join("")}
   </tbody></table></div><div class="caption">▲=상승(적색) ▼=하락(청색). 전월이 0이거나 비교 구간이 없으면 NA. 지수가 5 미만이면 증감률이 크게 튈 수 있음.</div></section>`;
   const M=th.mentions||{};const mk=Object.keys(M);
   if(mk.length){
@@ -258,7 +263,7 @@ function render(){
     ${H.top.map(r=>`<tr><td class="l">${esc(r.name)}</td><td class="num">${r.n}</td><td>${esc(r.grade)}</td><td><a href="${esc(r.url)}" target="_blank" rel="noopener">열기</a></td></tr>`).join("")}</tbody></table></div>
     <div class="caption">병원 목록은 hansbiomed_tracker 수집분을 읽어 옵니다(월 1회 갱신 권장).</div></section>`}
   $("#main").innerHTML=h;
-  if(st._chart&&T)lineChart($("#lc"),{x:st._chart.x,series:st._chart.ser,unit:st._chart.unit,partialFrom:st._chart.pf,title:st._chart.title});
+  if(st._chart&&T)lineChart($("#lc"),{x:st._chart.x,series:st._chart.ser,unit:st._chart.unit,partialFrom:st._chart.pf,title:st._chart.title,src:st._chart.src});
   /* 막대는 innerHTML 이후 다시 계산 */
   if(mk.length){const days=[];for(let i=29;i>=0;i--){const d=new Date(DATA.today+"T00:00:00+09:00");d.setDate(d.getDate()-i);days.push(d.toLocaleDateString("sv-SE",{timeZone:"Asia/Seoul"}))}
     mk.forEach((k,j)=>{const m=M[k];barChart($("#bc"+j),{x:days,v:days.map(d=>m.blog_daily[d]||0),cut:m.blog_oldest,label:k+" 블로그 새 글",color:css(COLORS[j%5]),title:k})})}
@@ -319,14 +324,15 @@ function capTxt(k){if(!k)return"–";return k>=1e12?(k/1e12).toFixed(1)+"조":Ma
 function stockMetrics(unit){
   const k=SIG[unit].k,B=basePeriods(unit),keep=B.map((p,i)=>i).filter(i=>unit!=="month"||B[i]<DATA.current_month),n=keep.length,grp=st.ovGroup||"";
   if(n<3*k||!DATA.stocks)return[];
-  const by={};
+  const by={},shareCache={};
   DATA.themes.forEach((th,ti)=>(th.codes||[]).forEach((cs,j)=>cs.forEach(code=>{if(!DATA.stocks[code])return;
     const v=alignedVals(th,st.flt,unit,j);const vv=keep.map(i=>v[i]);
     const A=wavg(vv.slice(n-3*k,n-2*k)),Bv=wavg(vv.slice(n-2*k,n-k)),C=wavg(vv.slice(n-k));
     const low=A==null||Bv==null||C==null||Math.min(A,Bv,C)<LOW_BASE;
     const o=by[code]=by[code]||{code,n:DATA.stocks[code].n,cap:DATA.stocks[code].cap,kws:[],groups:new Set()};
     o.groups.add(th.group);
-    o.kws.push({name:th.keywords[j],company:th.kind==="company",low,S:low?null:C/Bv-1,prev:low?null:Bv/A-1,sp:vv.slice(-SIG[unit].spark)})})));
+    let shd=null;if(th.kind!=="company"&&th.keywords.length>1){const SS=(shareCache[th.id+unit+st.flt]=shareCache[th.id+unit+st.flt]||shareSeries(th,st.flt,unit));const c=shareChange(SS[j],unit,unit);shd=c?c.d:null}
+    o.kws.push({name:th.keywords[j],company:th.kind==="company",low,S:low?null:C/Bv-1,prev:low?null:Bv/A-1,shd,sp:vv.slice(-SIG[unit].spark)})})));
   const out=[];
   Object.values(by).forEach(o=>{if(grp&&!o.groups.has(grp))return;
     const prod=o.kws.filter(x=>!x.company&&x.S!=null),comp=o.kws.filter(x=>x.company&&x.S!=null),use=prod.length?prod:comp;
@@ -339,7 +345,8 @@ function stockMetrics(unit){
     /* 검색 추이 미니 그래프: 키워드마다 자체 최고=1로 맞춘 뒤 평균 */
     const L=SIG[unit].spark,norm=use.map(x=>{const mx=Math.max(0,...x.sp.filter(v=>v!=null));return x.sp.map(v=>v==null||!mx?null:v/mx)});
     const spS=Array.from({length:L},(_,i)=>{const b=norm.map(a=>a[i]).filter(v=>v!=null);return b.length?b.reduce((s,v)=>s+v,0)/b.length:null});
-    out.push({...o,S,P,gap:S!=null&&P!=null?S-P:null,companyOnly:!prod.length&&comp.length>0,nUp:use.filter(x=>x.S>0).length,nUse:use.length,
+    const shs=o.kws.filter(x=>x.shd!=null).map(x=>x.shd);
+    out.push({...o,SH:shs.length?shs.reduce((a,b)=>a+b,0)/shs.length:null,S,P,gap:S!=null&&P!=null?S-P:null,companyOnly:!prod.length&&comp.length>0,nUp:use.filter(x=>x.S>0).length,nUse:use.length,
       spS,spP:pv.slice(-L),label:quad(S,P)})});
   return out}
 function quad(S,P){if(S==null||P==null)return"";if(S>=S_TH&&P<P_TH)return"lead";if(S>=S_TH)return"priced";if(S<=-S_TH&&P>=P_TH)return"hot";if(S<=-S_TH&&P<=-P_TH)return"weak";return"neutral"}
@@ -361,7 +368,7 @@ function renderScore(){
   const unit=st.sigUnit||"week",M=stockMetrics(unit),grp=st.ovGroup||"",L=SIG[unit].lbl,W=sigWindows(unit);
   const key=st.scSort||"gap",dir=st.scDir||-1;const v=(r,k)=>r[k]==null||!isFinite(r[k])?-1e18*dir:r[k];
   M.sort((a,b)=>typeof a[key]==="string"?String(a[key]).localeCompare(String(b[key]),"ko")*dir:(v(a,key)-v(b,key))*dir);
-  const cols=[["n","종목"],["cap","시가총액"],["S",`검색 변화(${L})`],["P",`주가(${L})`],["gap","괴리(검색−주가)"],["nUp","상승 키워드"],["label","분류"]];
+  const cols=[["n","종목"],["cap","시가총액"],["S",`검색 변화(${L})`],["P",`주가(${L})`],["gap","괴리(검색−주가)"],["SH","점유율 변화"],["nUp","상승 키워드"],["label","분류"]];
   const order={lead:0,priced:1,hot:2,weak:3,neutral:4,"":5};
   let h=`<section class="card"><h2>종목 점수판 — ${grp?esc(grp)+" · ":""}${M.length}개 종목</h2>
   <div class="muted">키워드를 상장사 단위로 묶었습니다. <b>괴리 = 검색 변화 − 주가 수익률</b>이 클수록 “관심은 늘었는데 주가는 아직” 쪽입니다. 행을 누르면 그 종목의 키워드 그래프로 이동합니다.</div>
@@ -371,7 +378,7 @@ function renderScore(){
   <div class="caption">${W?`최근 ${L}: ${W.C} · 직전 ${L}: ${W.B}`:""} · 종가 기준일 ${esc(DATA.price_asof||"–")} · 검색 = 제품 키워드 평균(없으면 기업명 검색, ‘기업명’ 표시) · 평균 지수 ${LOW_BASE} 미만 키워드는 제외</div></section>
   <section class="card"><div class="scroll" style="max-height:75vh;overflow-y:auto"><table id="sc"><thead><tr>${cols.map(([k,l])=>`<th data-ssort="${k}" aria-sort="${k===key?(dir>0?"ascending":"descending"):"none"}">${l}${k===key?(dir>0?" ▲":" ▼"):""}</th>`).join("")}<th>검색 추이</th><th>주가 추이</th><th>연결 키워드</th></tr></thead><tbody>
   ${M.map(r=>{const q=QUAD[r.label]||QUAD.neutral;return `<tr data-q="${esc(r.n)}" style="cursor:pointer"><td class="l"><b>${esc(r.n)}</b></td><td class="num">${capTxt(r.cap)}</td><td>${pct(r.S)}</td><td>${pct(r.P)}</td>
-    <td>${r.gap==null?'<span class="caption">NA</span>':`<b class="num">${r.gap>0?"+":"−"}${Math.abs(r.gap*100).toFixed(1)}%p</b>`}</td><td class="num">${r.nUse?`${r.nUp}/${r.nUse}`:"–"}</td>
+    <td>${r.gap==null?'<span class="caption">NA</span>':`<b class="num">${r.gap>0?"+":"−"}${Math.abs(r.gap*100).toFixed(1)}%p</b>`}</td><td>${ppTxt(r.SH)}</td><td class="num">${r.nUse?`${r.nUp}/${r.nUse}`:"–"}</td>
     <td class="l" style="color:var(${q[3]})">${r.label?q[0]+" "+q[1]:'<span class="caption">NA</span>'}</td><td>${spark(r.spS,css("--s1"))}</td><td>${spark(r.spP,css("--s2"))}</td>
     <td class="l caption">${esc(r.kws.map(x=>x.name+(x.company?"(기업명)":"")).join(", "))}</td></tr>`}).join("")}
   </tbody></table></div><div class="caption">검색 추이(파랑)와 주가 추이(주황)는 각각 최근 ${SIG[unit].spark}${unit==="week"?"주":"개월"}의 모양만 비교하는 미니 그래프입니다. 머리글을 누르면 정렬됩니다.</div></section>`;
@@ -382,6 +389,69 @@ function renderScore(){
   document.querySelectorAll("[data-q]").forEach(b=>b.onclick=()=>{setQuery(b.dataset.q);scrollTo(0,0)});
   document.querySelectorAll("#sc th[data-ssort]").forEach(t=>t.onclick=()=>{const k=t.dataset.ssort;st.scDir=st.scSort===k?-(st.scDir||-1):(k==="n"||k==="label"?1:-1);st.scSort=k;render()});
 }
+
+/* ---------- 공통: 기준 기간에 맞춘 값 ---------- */
+function keepIdx(unit){const B=basePeriods(unit);return B.map((p,i)=>i).filter(i=>unit!=="month"||B[i]<DATA.current_month)}
+function kv(th,flt,unit,j){const v=alignedVals(th,flt,unit,j);return keepIdx(unit).map(i=>v[i])}
+function keepPeriods(unit){const B=basePeriods(unit);return keepIdx(unit).map(i=>B[i])}
+function rangeLbl(unit,per,a,b){if(a<0||b>per.length||a>=b)return"–";const f=x=>unit==="month"?x.slice(0,7).replace("-","."):x.slice(2).replace(/-/g,".");
+  let e=per[b-1];if(unit==="week"){const d=new Date(e+"T00:00:00+09:00");d.setDate(d.getDate()+6);e=d.toLocaleDateString("sv-SE",{timeZone:"Asia/Seoul"})}return f(per[a])+"~"+f(e)}
+function spark2(cur,prev,c1,c2){const all=[...cur,...prev].filter(x=>x!=null);if(all.length<2)return'<span class="caption">–</span>';
+  const W=120,H=30,mx=Math.max(...all),mn=Math.min(...all),rg=mx-mn||1;
+  const path=a=>{let d="",pen=false;a.forEach((x,i)=>{if(x==null){pen=false;return}d+=(pen?"L":"M")+(i*(W-4)/Math.max(1,a.length-1)+2).toFixed(1)+" "+(H-3-(x-mn)/rg*(H-6)).toFixed(1);pen=true});return d};
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${path(prev)}" fill="none" stroke="${c2}" stroke-width="1.4" stroke-dasharray="3 2"/><path d="${path(cur)}" fill="none" stroke="${c1}" stroke-width="1.8"/></svg>`}
+
+/* ---------- ③ 계절성 제거 신호판: 같은 구간을 작년과 비교(전년 동기 대비) ---------- */
+const SEA={week:{k:4,lag:52,lbl:"4주",sp:26},month:{k:3,lag:12,lbl:"3개월",sp:12}};
+function seasonal(unit){const {k,lag,sp}=SEA[unit],grp=st.ovGroup||"",items=[];let low=0;const per=keepPeriods(unit),n=per.length;
+  if(n<2*k+lag)return {items,low,total:0,per,n};
+  DATA.themes.forEach((th,ti)=>{if(grp&&th.group!==grp)return;th.keywords.forEach((name,j)=>{const v=kv(th,st.flt,unit,j);
+    const C=wavg(v.slice(n-k,n)),Cl=wavg(v.slice(n-k-lag,n-lag)),B=wavg(v.slice(n-2*k,n-k)),Bl=wavg(v.slice(n-2*k-lag,n-k-lag));
+    if([C,Cl,B,Bl].some(x=>x==null))return;if(Math.min(C,Cl,B,Bl)<LOW_BASE){low++;return}
+    items.push({ti,j,name,stock:(th.stocks||[])[j]||"",theme:th.short||th.name,recent:C/Cl-1,prev:B/Bl-1,cur:v.slice(n-sp),ly:v.slice(n-sp-lag,n-lag)})})});
+  return {items,low,total:items.length,per,n}}
+function seasonalBoard(){const unit=st.seaUnit||"week",R=seasonal(unit),{k,lag}=SEA[unit],L=SEA[unit].lbl,per=R.per,n=R.n;
+  const top=(f,sc)=>R.items.filter(f).sort((a,b)=>sc(b)-sc(a)).slice(0,5);
+  const S={up:top(r=>r.prev>=0&&r.recent>0,r=>r.recent),down:top(r=>r.prev<=0&&r.recent<0,r=>-r.recent),
+    rebound:top(r=>r.prev<0&&r.recent>0,r=>r.recent-r.prev),peak:top(r=>r.prev>0&&r.recent<0,r=>r.prev-r.recent)};
+  const box=(key,icon,title,desc,color)=>{const list=S[key];return `<div class="sigbox" style="--c:var(${color})"><h3>${icon} ${title}</h3><div class="caption">${desc}</div>
+    ${list.length?`<ol>${list.map((r,i)=>`<li><button type="button" data-q="${esc(r.name)}" aria-label="${esc(r.name)} 검색"><span class="rk">${i+1}</span><span class="nm"><b>${esc(r.name)}</b> <span class="caption">${esc(r.stock)}</span></span><span>${spark2(r.cur,r.ly,css(color),css("--ink-3"))}</span>
+      <span class="sub"><span>최근 전년비 ${pct(r.recent)}</span><span>직전 전년비 ${pct(r.prev)}</span><span class="caption">${esc(r.theme)}</span></span></button></li>`).join("")}</ol>`:'<div class="caption" style="margin-top:8px">해당하는 키워드가 없습니다.</div>'}</div>`};
+  return `<section class="card"><h2>계절성 제거 신호판 <span class="caption">— 작년 같은 시기와 비교 · 네이버 검색 관심도 기준</span></h2>
+  <div class="muted">위 신호판은 시즌 효과(패딩·빼빼로데이·추석 선물 등)가 그대로 들어갑니다. 이 칸은 <b>같은 구간을 작년과 비교</b>해 계절 요인을 걸러 낸, 구조적으로 커지거나 줄어드는 키워드를 보여 줍니다. 두 칸을 같이 보세요.</div>
+  <div class="ctrl"><div class="seg" role="group" aria-label="계절성 제거 기준">${["week","month"].map(u=>`<button type="button" data-sea="${u}" aria-pressed="${u===unit}">${u==="week"?"주별 (4주 vs 작년 같은 4주)":"월별 (3개월 vs 작년 같은 3개월)"}</button>`).join("")}</div></div>
+  <div class="caption">${n>=2*k+lag?`최근 ${L} ${rangeLbl(unit,per,n-k,n)} ↔ 작년 ${rangeLbl(unit,per,n-k-lag,n-lag)} · 직전 ${L} ${rangeLbl(unit,per,n-2*k,n-k)} ↔ 작년 ${rangeLbl(unit,per,n-2*k-lag,n-k-lag)}`:"작년 비교 구간 데이터가 부족합니다."}<br>
+  ‘최근 전년비’ = 최근 ${L} 평균 ÷ 작년 같은 ${L} 평균 − 1, ‘직전 전년비’도 같은 방식. 미니 그래프: 실선=올해, 점선=작년 같은 시기.
+  ${R.total}개 키워드 대상${R.low?` · 평균 지수 ${LOW_BASE} 미만 ${R.low}개 제외`:""}.</div>
+  <div class="sig">
+   ${box("up","📈","전년비 성장 지속","직전·최근 모두 작년보다 높고 최근 성장률이 큰 순","--up")}
+   ${box("down","📉","전년비 역성장 지속","직전·최근 모두 작년보다 낮고 최근 감소율이 큰 순","--down")}
+   ${box("rebound","↗️","전년비 회복 (− → +)","직전엔 작년보다 낮았다가 최근 앞선 것","--s3")}
+   ${box("peak","↘️","전년비 둔화 전환 (+ → −)","직전엔 작년보다 높았다가 최근 밑돈 것","--s2")}
+  </div></section>`}
+
+/* ---------- ④ 테마 안 검색 점유율: 경쟁 키워드 합 대비 비중 ---------- */
+function shareSeries(th,flt,unit){const m=th.keywords.length;const V=th.keywords.map((_,j)=>kv(th,flt,unit,j));const n=V[0]?V[0].length:0;
+  const S=th.keywords.map(()=>new Array(n).fill(null));
+  for(let t=0;t<n;t++){let sum=0,ok=0;for(let j=0;j<m;j++){if(V[j][t]!=null){sum+=V[j][t];ok++}}
+    if(ok===m&&sum>0)for(let j=0;j<m;j++)S[j][t]=V[j][t]/sum}return S}
+const SHM={week:{k:4,lag:0,lbl:"최근 4주 vs 직전 4주"},month:{k:3,lag:0,lbl:"최근 3개월 vs 직전 3개월"},yoy:{k:4,lag:52,lbl:"최근 4주 vs 작년 같은 4주",unit:"week"}};
+function shareChange(S,unit,mode){const c=SHM[mode],k=c.k,n=S.length;if(!n)return null;
+  const now=wavg(S.slice(n-k,n));const ref=c.lag?wavg(S.slice(n-k-c.lag,n-c.lag)):wavg(S.slice(n-2*k,n-k));return now==null||ref==null?null:{now,ref,d:now-ref}}
+function shareRows(mode){const unit=SHM[mode].unit||mode,grp=st.ovGroup||"",rows=[];
+  DATA.themes.forEach((th,ti)=>{if(th.kind==="company"||th.keywords.length<2||(grp&&th.group!==grp))return;const SS=shareSeries(th,st.flt,unit);
+    th.keywords.forEach((name,j)=>{const c=shareChange(SS[j],unit,mode);if(!c)return;rows.push({ti,j,name,stock:(th.stocks||[])[j]||"",theme:th.short||th.name,...c,sp:SS[j].slice(-26)})})});return rows}
+function ppTxt(d){return d==null?'<span class="caption">NA</span>':`<span class="${d>0?"up":d<0?"down":""}">${d>0?"▲ +":d<0?"▼ −":""}${Math.abs(d*100).toFixed(1)}%p</span>`}
+function shareBoard(){const mode=st.shMode||"week",R=shareRows(mode);
+  const up=[...R].sort((a,b)=>b.d-a.d).slice(0,5),dn=[...R].sort((a,b)=>a.d-b.d).slice(0,5);
+  const box=(list,icon,title,desc,color)=>`<div class="sigbox" style="--c:var(${color})"><h3>${icon} ${title}</h3><div class="caption">${desc}</div>
+    ${list.length?`<ol>${list.map((r,i)=>`<li><button type="button" data-go="${r.ti}" aria-label="${esc(r.theme)} 테마로 이동"><span class="rk">${i+1}</span><span class="nm"><b>${esc(r.name)}</b> <span class="caption">${esc(r.stock)}</span></span><span>${spark(r.sp,css(color))}</span>
+      <span class="sub"><span>점유율 ${(r.ref*100).toFixed(1)}% → <b>${(r.now*100).toFixed(1)}%</b></span><span>${ppTxt(r.d)}</span><span class="caption">${esc(r.theme)}</span></span></button></li>`).join("")}</ol>`:'<div class="caption">해당 없음</div>'}</div>`;
+  return `<section class="card"><h2>테마 안 점유율 변화 <span class="caption">— 경쟁 제품 대비 검색 비중</span></h2>
+  <div class="muted">같은 테마 키워드 검색의 합을 100%로 놓고 각 키워드의 비중을 봅니다. 업종 전체가 같이 오르내리는 효과가 빠져서, <b>경쟁사에게서 관심을 뺏어 오는지</b> 보여 줍니다. 누르면 그 테마로 이동합니다.</div>
+  <div class="ctrl"><div class="seg" role="group" aria-label="점유율 비교 기준">${Object.entries(SHM).map(([m,c])=>`<button type="button" data-shm="${m}" aria-pressed="${m===mode}">${c.lbl}</button>`).join("")}</div></div>
+  <div class="caption">%p = 퍼센트포인트(점유율 25% → 30%면 +5%p). 기업명 검색 테마는 제외 · 대상 ${R.length}개 키워드 · 테마 안 키워드 구성이 바뀌면 점유율도 달라집니다.</div>
+  <div class="sig">${box(up,"🏆","점유율 상승 Top 5","테마 안 비중이 가장 많이 늘어난 키워드","--up")}${box(dn,"🔻","점유율 하락 Top 5","테마 안 비중이 가장 많이 줄어든 키워드","--down")}</div></section>`}
 function renderOverview(){
   const flt=st.flt;const rows=[];
   const grp=st.ovGroup||"";
@@ -395,7 +465,7 @@ function renderOverview(){
   const up=[...valid].sort((a,b)=>b.w-a.w).slice(0,5),dn=[...valid].sort((a,b)=>a.w-b.w).slice(0,5);
   const chip=r=>`<button type="button" class="btn" data-go="${r.ti}" style="min-height:36px;margin:2px">${esc(r.name)} ${pct(r.w)}</button>`;
   const cols=[["theme","테마"],["name","키워드"],["stock","연결 종목"],["w","최근 7일 vs 직전 7일"],["mom","전월 대비"],["yoy","전년 동월 대비"],["hi","1년 고점 대비"]];
-  let h=signalBoard()+divergenceBoard()+`<section class="card"><h2>전체 요약 — ${grp?esc(grp)+" · ":""}${rows.length}개 키워드</h2>
+  let h=signalBoard()+seasonalBoard()+shareBoard()+divergenceBoard()+`<section class="card"><h2>전체 요약 — ${grp?esc(grp)+" · ":""}${rows.length}개 키워드</h2>
   <div class="muted">증감률(%)은 테마가 달라도 같이 볼 수 있습니다. 지수 수준은 같은 테마 안에서만 비교하세요. 행이나 버튼을 누르면 해당 테마 탭으로 갑니다.</div>
   <div class="ctrl"><div class="seg" role="group" aria-label="대상">${DATA.themes[0]?Object.entries(DATA.themes[0].trend).map(([id,t])=>`<button type="button" data-flt="${id}" aria-pressed="${id===flt}">${esc(t.label)}</button>`).join(""):""}</div>
   <select id="ovGroup" aria-label="분야" style="min-height:40px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);font:inherit;font-size:14px;padding:0 8px"><option value="">모든 분야</option>${groups().map(g=>`<option ${g===grp?"selected":""}>${esc(g)}</option>`).join("")}</select></div>
@@ -411,6 +481,8 @@ function renderOverview(){
   document.querySelectorAll("[data-sig]").forEach(b=>b.onclick=()=>{st.sigUnit=b.dataset.sig;render()});
   document.querySelectorAll("[data-q]").forEach(b=>b.onclick=()=>{setQuery(b.dataset.q);scrollTo(0,0)});
   document.querySelectorAll("[data-tab-go]").forEach(b=>b.onclick=()=>{st.tab=+b.dataset.tabGo;render();scrollTo(0,0)});
+  document.querySelectorAll("[data-sea]").forEach(b=>b.onclick=()=>{st.seaUnit=b.dataset.sea;render()});
+  document.querySelectorAll("[data-shm]").forEach(b=>b.onclick=()=>{st.shMode=b.dataset.shm;render()});
   document.querySelectorAll("[data-flt]").forEach(b=>b.onclick=()=>{st.flt=b.dataset.flt;render()});
   document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{st.tab=+b.dataset.go;render();scrollTo(0,0)});
   document.querySelectorAll("#ov th[data-sort]").forEach(t=>t.onclick=()=>{const k=t.dataset.sort;st.ovDir=st.ovSort===k?-(st.ovDir||-1):(k==="theme"||k==="name"||k==="stock"?1:-1);st.ovSort=k;render()});
@@ -471,6 +543,7 @@ function bind(th){
   document.querySelectorAll("[data-unit]").forEach(b=>b.onclick=()=>{st.unit=b.dataset.unit;render()});
   document.querySelectorAll("[data-per]").forEach(b=>b.onclick=()=>{st.per[st.unit]=+b.dataset.per;render()});
   document.querySelectorAll("[data-flt]").forEach(b=>b.onclick=()=>{st.flt=b.dataset.flt;render()});
+  document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>{st.view=b.dataset.view;render()});
   document.querySelectorAll("[data-leg]").forEach(b=>b.onclick=()=>{const k=th.id+"|"+b.dataset.leg;st.off[k]=!st.off[k];render()});
   const c=$("#csv");if(c)c.onclick=()=>{const T=seriesOf(th,st.flt,st.unit);if(!T)return;
     let s="﻿기간,"+T.series.map(x=>x.name).join(",")+"\n";T.periods.forEach((p,i)=>s+=p+","+T.series.map(x=>x.values[i]??"").join(",")+"\n");
@@ -505,4 +578,4 @@ init();
 </script>
 </body>
 </html>
-<!-- pages-build:52C0C7508CD28DCD -->
+<!-- pages-build:548FBA8848D9D851 -->
