@@ -91,6 +91,14 @@ footer{max-width:1180px;margin:0 auto;padding:0 16px 32px;color:var(--ink-3);fon
 .chip{border:1px solid var(--line);background:var(--panel-2);color:var(--ink);border-radius:999px;min-height:34px;padding:0 12px;font:inherit;font-size:13.5px;cursor:pointer}
 .kpis{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:14px;margin:4px 0 6px}
 .kpis span.k{color:var(--ink-2)}
+.sig{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(270px,100%),1fr));gap:12px;margin-top:10px}
+.sigbox{background:var(--panel-2);border:1px solid var(--line-soft);border-top:4px solid var(--c);border-radius:10px;padding:12px}
+.sigbox h3{margin:0 0 2px;font-size:16px;color:var(--c)}
+.sigbox ol{list-style:none;margin:8px 0 0;padding:0}
+.sigbox li button{display:grid;grid-template-columns:22px 1fr auto;gap:2px 8px;align-items:center;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line-soft);border-radius:8px;padding:6px 8px;margin:0 0 6px;color:var(--ink);font:inherit;font-size:14px;cursor:pointer;min-height:44px}
+.sigbox li .rk{font-weight:800;color:var(--c);text-align:center}
+.sigbox li .nm{word-break:keep-all;overflow-wrap:anywhere}
+.sigbox li .sub{grid-column:2/4;font-size:12.5px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:2px 10px;align-items:center}
 </style>
 </head>
 <body>
@@ -260,6 +268,45 @@ function spark(vals,color){const v=vals.filter(x=>x!=null);if(v.length<2)return'
   const W=120,H=30,mx=Math.max(...v),mn=Math.min(...v),rg=mx-mn||1;let d="",pen=false;
   vals.forEach((x,i)=>{if(x==null){pen=false;return}d+=(pen?"L":"M")+(i*(W-4)/(vals.length-1)+2).toFixed(1)+" "+(H-3-(x-mn)/rg*(H-6)).toFixed(1);pen=true});
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/></svg>`}
+
+/* ---------- 트렌드 신호판: 세 구간(그 전·직전·최근) 평균 비교로 4가지 흐름 분류 ---------- */
+const SIG={week:{k:4,lbl:"4주",spark:26},month:{k:3,lbl:"3개월",spark:24}};
+const LOW_BASE=2;   /* 구간 평균 지수가 2 미만이면 증감률이 크게 튀므로 순위에서 뺀다 */
+function wavg(a){const b=a.filter(x=>x!=null);return b.length&&b.length>=Math.ceil(a.length*2/3)?b.reduce((s,x)=>s+x,0)/b.length:null}
+function sigWindows(unit){const th=DATA.themes.find(t=>t.trend[st.flt]&&t.trend[st.flt][unit]);if(!th)return null;
+  const T=th.trend[st.flt][unit];let per=T.periods;if(unit==="month")per=per.filter(p=>p<DATA.current_month);const k=SIG[unit].k,n=per.length;if(n<3*k)return null;
+  const end=i=>{if(unit==="month")return per[i].slice(0,7).replace("-",".");const d=new Date(per[i]+"T00:00:00+09:00");d.setDate(d.getDate()+6);return d.toLocaleDateString("sv-SE",{timeZone:"Asia/Seoul"}).slice(5).replace("-",".")};
+  const beg=i=>unit==="month"?per[i].slice(0,7).replace("-","."):per[i].slice(5).replace("-",".");
+  return {A:beg(n-3*k)+"~"+end(n-2*k-1),B:beg(n-2*k)+"~"+end(n-k-1),C:beg(n-k)+"~"+end(n-1)}}
+function signals(unit){const k=SIG[unit].k,grp=st.ovGroup||"",items=[];let low=0;
+  DATA.themes.forEach((th,ti)=>{if(grp&&th.group!==grp)return;const T=th.trend[st.flt]&&th.trend[st.flt][unit];if(!T)return;
+    let idx=T.periods.map((p,i)=>i);if(unit==="month")idx=idx.filter(i=>T.periods[i]<DATA.current_month);
+    th.keywords.forEach((name,j)=>{const v=idx.map(i=>(T.series[j]||{values:[]}).values[i]);const n=v.length;if(n<3*k)return;
+      const A=wavg(v.slice(n-3*k,n-2*k)),B=wavg(v.slice(n-2*k,n-k)),C=wavg(v.slice(n-k));if(A==null||B==null||C==null)return;
+      if(Math.min(A,B,C)<LOW_BASE){low++;return}
+      items.push({ti,j,name,stock:(th.stocks||[])[j]||"",theme:th.short||th.name,prev:B/A-1,recent:C/B-1,sp:v.slice(-SIG[unit].spark)})})});
+  const top=(f,sc)=>items.filter(f).sort((a,b)=>sc(b)-sc(a)).slice(0,5);
+  return {low,total:items.length,
+    up:top(r=>r.prev>=0&&r.recent>0,r=>r.recent),
+    down:top(r=>r.prev<=0&&r.recent<0,r=>-r.recent),
+    rebound:top(r=>r.prev<0&&r.recent>0,r=>r.recent-r.prev),
+    peak:top(r=>r.prev>0&&r.recent<0,r=>r.prev-r.recent)}}
+function signalBoard(){const unit=st.sigUnit||"week",S=signals(unit),W=sigWindows(unit),L=SIG[unit].lbl;
+  const box=(key,icon,title,desc,color)=>{const list=S[key];return `<div class="sigbox" style="--c:var(${color})"><h3>${icon} ${title}</h3><div class="caption">${desc}</div>
+    ${list.length?`<ol>${list.map((r,i)=>`<li><button type="button" data-q="${esc(r.name)}" aria-label="${esc(r.name)} 검색"><span class="rk">${i+1}</span><span class="nm"><b>${esc(r.name)}</b> <span class="caption">${esc(r.stock)}</span></span><span>${spark(r.sp,css(color))}</span>
+      <span class="sub"><span>최근 ${pct(r.recent)}</span><span>직전 ${pct(r.prev)}</span><span class="caption">${esc(r.theme)}</span></span></button></li>`).join("")}</ol>`:'<div class="caption" style="margin-top:8px">해당하는 키워드가 없습니다.</div>'}</div>`};
+  return `<section class="card"><h2>트렌드 신호판</h2>
+  <div class="muted">검색하지 않아도 흐름이 바뀐 키워드를 바로 보도록, 매일 갱신되는 지수로 자동 분류합니다. 항목을 누르면 그 키워드 그래프로 이동합니다.</div>
+  <div class="ctrl"><div class="seg" role="group" aria-label="신호 기준">${["week","month"].map(u=>`<button type="button" data-sig="${u}" aria-pressed="${u===unit}">${u==="week"?"주별 (4주 단위)":"월별 (3개월 단위)"}</button>`).join("")}</div></div>
+  <div class="caption">${W?`비교 구간 — 그 전 ${L}: ${W.A} · 직전 ${L}: ${W.B} · 최근 ${L}: ${W.C} (완료된 ${unit==="week"?"주":"월"}만 사용)`:"비교 구간을 만들 데이터가 부족합니다."}<br>
+  ‘최근’ = 최근 ${L} 평균 ÷ 직전 ${L} 평균 − 1, ‘직전’ = 직전 ${L} 평균 ÷ 그 전 ${L} 평균 − 1. 증감률이라 테마가 달라도 같이 순위를 매길 수 있습니다.
+  ${S.total}개 키워드 대상${S.low?` · 평균 지수 ${LOW_BASE} 미만 ${S.low}개는 증감률이 크게 튀어 제외`:""}.</div>
+  <div class="sig">
+   ${box("up","📈","상승 지속","직전·최근 모두 올랐고 최근 상승률이 큰 순","--up")}
+   ${box("down","📉","하락 지속","직전·최근 모두 내렸고 최근 하락률이 큰 순","--down")}
+   ${box("rebound","↗️","반등 (하락 → 상승)","직전엔 내렸다가 최근 오른 것, 방향 전환 폭이 큰 순","--s3")}
+   ${box("peak","↘️","꺾임 (상승 → 하락)","직전엔 올랐다가 최근 내린 것, 방향 전환 폭이 큰 순","--s2")}
+  </div></section>`}
 function renderOverview(){
   const flt=st.flt;const rows=[];
   const grp=st.ovGroup||"";
@@ -273,12 +320,12 @@ function renderOverview(){
   const up=[...valid].sort((a,b)=>b.w-a.w).slice(0,5),dn=[...valid].sort((a,b)=>a.w-b.w).slice(0,5);
   const chip=r=>`<button type="button" class="btn" data-go="${r.ti}" style="min-height:36px;margin:2px">${esc(r.name)} ${pct(r.w)}</button>`;
   const cols=[["theme","테마"],["name","키워드"],["stock","연결 종목"],["w","최근 7일 vs 직전 7일"],["mom","전월 대비"],["yoy","전년 동월 대비"],["hi","1년 고점 대비"]];
-  let h=`<section class="card"><h2>전체 요약 — ${grp?esc(grp)+" · ":""}${rows.length}개 키워드</h2>
+  let h=signalBoard()+`<section class="card"><h2>전체 요약 — ${grp?esc(grp)+" · ":""}${rows.length}개 키워드</h2>
   <div class="muted">증감률(%)은 테마가 달라도 같이 볼 수 있습니다. 지수 수준은 같은 테마 안에서만 비교하세요. 행이나 버튼을 누르면 해당 테마 탭으로 갑니다.</div>
   <div class="ctrl"><div class="seg" role="group" aria-label="대상">${DATA.themes[0]?Object.entries(DATA.themes[0].trend).map(([id,t])=>`<button type="button" data-flt="${id}" aria-pressed="${id===flt}">${esc(t.label)}</button>`).join(""):""}</div>
   <select id="ovGroup" aria-label="분야" style="min-height:40px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);font:inherit;font-size:14px;padding:0 8px"><option value="">모든 분야</option>${groups().map(g=>`<option ${g===grp?"selected":""}>${esc(g)}</option>`).join("")}</select></div>
-  <div style="margin:6px 0"><b>최근 7일 급상승</b> ${up.map(chip).join("")||'<span class="caption">없음</span>'}</div>
-  <div style="margin:6px 0 4px"><b>최근 7일 급하락</b> ${dn.map(chip).join("")||'<span class="caption">없음</span>'}</div>
+  <div style="margin:6px 0"><b>최근 7일 급상승(일별)</b> ${up.map(chip).join("")||'<span class="caption">없음</span>'}</div>
+  <div style="margin:6px 0 4px"><b>최근 7일 급하락(일별)</b> ${dn.map(chip).join("")||'<span class="caption">없음</span>'}</div>
   <div class="caption">직전 7일 평균 지수가 3 미만인 키워드는 증감률이 크게 튀어 급상승·급하락 목록에서 뺐습니다(표에는 '낮은 기저'로 표시).</div></section>
   <section class="card"><div class="scroll" style="max-height:70vh;overflow-y:auto"><table id="ov"><thead><tr>${cols.map(([k,l])=>`<th data-sort="${k}" aria-sort="${k===key?(dir>0?"ascending":"descending"):"none"}">${l}${k===key?(dir>0?" ▲":" ▼"):""}</th>`).join("")}<th>주별 추이(26주)</th></tr></thead><tbody>
   ${rows.map(r=>`<tr data-go="${r.ti}" style="cursor:pointer"><td class="l">${esc(r.theme)}</td><td class="l"><b>${esc(r.name)}</b></td><td class="l caption">${esc(r.stock)}</td>
@@ -286,6 +333,8 @@ function renderOverview(){
   </tbody></table></div><div class="caption">머리글을 누르면 정렬됩니다. 7일 비교는 일별 지수, 월 비교는 최근 완료월 기준입니다.</div></section>`;
   $("#main").innerHTML=h;
   $("#ovGroup").onchange=e=>{st.ovGroup=e.target.value;render()};
+  document.querySelectorAll("[data-sig]").forEach(b=>b.onclick=()=>{st.sigUnit=b.dataset.sig;render()});
+  document.querySelectorAll("[data-q]").forEach(b=>b.onclick=()=>{setQuery(b.dataset.q);scrollTo(0,0)});
   document.querySelectorAll("[data-flt]").forEach(b=>b.onclick=()=>{st.flt=b.dataset.flt;render()});
   document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{st.tab=+b.dataset.go;render();scrollTo(0,0)});
   document.querySelectorAll("#ov th[data-sort]").forEach(t=>t.onclick=()=>{const k=t.dataset.sort;st.ovDir=st.ovSort===k?-(st.ovDir||-1):(k==="theme"||k==="name"||k==="stock"?1:-1);st.ovSort=k;render()});
@@ -380,4 +429,4 @@ init();
 </script>
 </body>
 </html>
-<!-- pages-build:60E0212408B106B7 -->
+<!-- pages-build:872429E25637FB05 -->
